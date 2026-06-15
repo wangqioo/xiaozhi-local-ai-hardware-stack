@@ -8,6 +8,7 @@ echo "verify: tests"
 bash tests/test_doctor.sh
 bash tests/test_local_env.sh
 python3 tests/test_device_admission.py
+python3 tests/test_connection_logging.py
 python3 tests/test_ota_contract.py
 python3 tests/test_runtime_profile.py
 bash tests/test_szpi_s3_overlay.sh
@@ -47,9 +48,12 @@ python3 -m py_compile \
   server/xiaozhi-esp32-server/main/xiaozhi-server/config/runtime_profile.py \
   server/xiaozhi-esp32-server/main/xiaozhi-server/core/device_admission.py \
   server/xiaozhi-esp32-server/main/xiaozhi-server/core/ota_contract.py \
+  server/xiaozhi-esp32-server/main/xiaozhi-server/core/utils/connection_log.py \
   server/xiaozhi-esp32-server/main/xiaozhi-server/core/http_server.py \
   server/xiaozhi-esp32-server/main/xiaozhi-server/core/api/device_admin.py \
   server/xiaozhi-esp32-server/main/xiaozhi-server/core/api/ota_handler.py \
+  server/xiaozhi-esp32-server/main/xiaozhi-server/core/providers/tools/device_mcp/mcp_handler.py \
+  server/xiaozhi-esp32-server/main/xiaozhi-server/core/utils/audioRateController.py \
   server/xiaozhi-esp32-server/main/xiaozhi-server/core/websocket_server.py
 
 echo "verify: secret hygiene"

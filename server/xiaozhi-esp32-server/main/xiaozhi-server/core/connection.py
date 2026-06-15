@@ -17,6 +17,7 @@ from core.utils.util import (
     check_asr_update,
     filter_sensitive_info,
 )
+from core.utils.connection_log import sanitize_headers
 from typing import Dict, Any
 from collections import deque
 from core.utils.modules_initialize import (
@@ -182,8 +183,9 @@ class ConnectionHandler:
                 self.client_ip = real_ip.split(",")[0].strip()
             else:
                 self.client_ip = ws.remote_address[0]
+            safe_headers = sanitize_headers(self.headers)
             self.logger.bind(tag=TAG).info(
-                f"{self.client_ip} conn - Headers: {self.headers}"
+                f"{self.client_ip} conn - Headers: {safe_headers}"
             )
 
             self.device_id = self.headers.get("device-id", None)

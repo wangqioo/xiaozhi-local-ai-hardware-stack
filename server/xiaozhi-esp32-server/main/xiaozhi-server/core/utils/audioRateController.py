@@ -2,6 +2,7 @@ import time
 import asyncio
 from collections import deque
 from config.logger import setup_logging
+from core.utils.connection_log import is_expected_connection_close
 
 TAG = __name__
 logger = setup_logging()
@@ -84,6 +85,12 @@ class AudioRateController:
                 try:
                     await message_callback()
                 except Exception as e:
+                    if is_expected_connection_close(e):
+                        self.logger.bind(tag=TAG).debug(
+                            f"发送消息时连接已关闭: {e}"
+                        )
+                        self.reset()
+                        return
                     self.logger.bind(tag=TAG).error(f"发送消息失败: {e}")
                     raise
 
@@ -120,6 +127,12 @@ class AudioRateController:
                 try:
                     await send_audio_callback(opus_packet)
                 except Exception as e:
+                    if is_expected_connection_close(e):
+                        self.logger.bind(tag=TAG).debug(
+                            f"发送音频时连接已关闭: {e}"
+                        )
+                        self.reset()
+                        return
                     self.logger.bind(tag=TAG).error(f"发送音频失败: {e}")
                     raise
 
@@ -148,6 +161,10 @@ class AudioRateController:
             except asyncio.CancelledError:
                 self.logger.bind(tag=TAG).debug("音频发送循环已停止")
             except Exception as e:
+                if is_expected_connection_close(e):
+                    self.logger.bind(tag=TAG).debug(f"音频发送循环连接已关闭: {e}")
+                    self.reset()
+                    return
                 self.logger.bind(tag=TAG).error(f"音频发送循环异常: {e}")
 
         self.pending_send_task = asyncio.create_task(_send_loop())

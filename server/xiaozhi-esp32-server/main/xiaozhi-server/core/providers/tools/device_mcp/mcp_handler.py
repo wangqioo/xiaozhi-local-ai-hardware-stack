@@ -6,6 +6,7 @@ import re
 from concurrent.futures import Future
 from core.utils.util import get_vision_url, sanitize_tool_name
 from core.utils.auth import AuthToken
+from core.utils.connection_log import is_expected_connection_close
 from config.logger import setup_logging
 
 TAG = __name__
@@ -108,6 +109,9 @@ async def send_mcp_message(conn, payload: dict):
         await conn.websocket.send(message)
         logger.bind(tag=TAG).debug(f"成功发送MCP消息: {message}")
     except Exception as e:
+        if is_expected_connection_close(e):
+            logger.bind(tag=TAG).debug(f"发送MCP消息时连接已关闭: {e}")
+            return
         logger.bind(tag=TAG).error(f"发送MCP消息失败: {e}")
 
 

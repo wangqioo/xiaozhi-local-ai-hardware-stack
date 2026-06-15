@@ -16,6 +16,7 @@ from core.ota_contract import (
     parse_device_report,
     resolve_websocket_url,
 )
+from core.utils.connection_log import sanitize_headers
 from core.utils.util import get_local_ip, get_vision_url
 from core.api.base_handler import BaseHandler
 
@@ -125,7 +126,9 @@ class OTAHandler(BaseHandler):
         try:
             data = await request.text()
             self.logger.bind(tag=TAG).debug(f"OTA请求方法: {request.method}")
-            self.logger.bind(tag=TAG).debug(f"OTA请求头: {request.headers}")
+            self.logger.bind(tag=TAG).debug(
+                f"OTA请求头: {sanitize_headers(request.headers)}"
+            )
             self.logger.bind(tag=TAG).debug(f"OTA请求数据: {data}")
 
             data_json = {}
