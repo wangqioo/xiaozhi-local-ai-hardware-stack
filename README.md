@@ -28,7 +28,7 @@ server/xiaozhi-esp32-server/main/manager-web      # Web 管理台源码
 server/xiaozhi-esp32-server/main/manager-mobile   # 移动端管理台源码
 ```
 
-局域网硬件闭环只需要先跑 `xiaozhi-server`；管理台是后续做设备配置、项目复用和多人协作时的可选入口。
+局域网硬件闭环只需要先跑 `xiaozhi-server`；管理台是后续做设备配置、项目复用和多人协作时的可选入口。当前后端模式和管理台移植状态见 [docs/backend-and-manager.md](docs/backend-and-manager.md)。
 
 ## Quick Start
 

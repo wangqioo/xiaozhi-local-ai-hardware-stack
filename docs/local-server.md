@@ -15,6 +15,7 @@ server/xiaozhi-esp32-server/main/manager-mobile
 ```
 
 管理台不是本地硬件语音闭环的必需项，但对后续做完整项目模板有价值，所以保留源码，排除 `.env`、`node_modules` 和构建产物。
+当前后端模式和管理台移植状态见 [backend-and-manager.md](backend-and-manager.md)。
 
 本地运行使用：
 
