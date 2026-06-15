@@ -1,13 +1,14 @@
 import sys
-import uuid
 import signal
 import asyncio
 from aioconsole import ainput
 from config.settings import load_config
 from config.logger import setup_logging
+from config.runtime_profile import resolve_runtime_profile
 from core.utils.util import get_local_ip, validate_mcp_endpoint
 from core.http_server import SimpleHttpServer
 from core.websocket_server import WebSocketServer
+from core.device_admission import DeviceAdmission
 from core.utils.util import check_ffmpeg_installed
 from core.utils.gc_manager import get_gc_manager
 
@@ -47,19 +48,7 @@ async def main():
     check_ffmpeg_installed()
     config = load_config()
 
-    # auth_key优先级：配置文件server.auth_key > manager-api.secret > 自动生成
-    # auth_key用于jwt认证，比如视觉分析接口的jwt认证、ota接口的token生成与websocket认证
-    # 获取配置文件中的auth_key
-    auth_key = config["server"].get("auth_key", "")
-    
-    # 验证auth_key，无效则尝试使用manager-api.secret
-    if not auth_key or len(auth_key) == 0 or "你" in auth_key:
-        auth_key = config.get("manager-api", {}).get("secret", "")
-        # 验证secret，无效则生成随机密钥
-        if not auth_key or len(auth_key) == 0 or "你" in auth_key:
-            auth_key = str(uuid.uuid4().hex)
-    
-    config["server"]["auth_key"] = auth_key
+    runtime_profile = resolve_runtime_profile(config)
 
     # 添加 stdin 监控任务
     stdin_task = asyncio.create_task(monitor_stdin())
@@ -68,25 +57,25 @@ async def main():
     gc_manager = get_gc_manager(interval_seconds=300)
     await gc_manager.start()
 
+    device_admission = DeviceAdmission(config)
+
     # 启动 WebSocket 服务器
-    ws_server = WebSocketServer(config)
+    ws_server = WebSocketServer(config, device_admission)
     ws_task = asyncio.create_task(ws_server.start())
     # 启动 Simple http 服务器
-    ota_server = SimpleHttpServer(config)
+    ota_server = SimpleHttpServer(config, device_admission)
     ota_task = asyncio.create_task(ota_server.start())
 
-    read_config_from_api = config.get("read_config_from_api", False)
-    port = int(config["server"].get("http_port", 8003))
-    if not read_config_from_api:
+    if runtime_profile.config_source == "local":
         logger.bind(tag=TAG).info(
             "OTA接口是\t\thttp://{}:{}/xiaozhi/ota/",
             get_local_ip(),
-            port,
+            runtime_profile.http_port,
         )
     logger.bind(tag=TAG).info(
         "视觉分析接口是\thttp://{}:{}/mcp/vision/explain",
         get_local_ip(),
-        port,
+        runtime_profile.http_port,
     )
     mcp_endpoint = config.get("mcp_endpoint", None)
     if mcp_endpoint is not None and "你" not in mcp_endpoint:
@@ -100,16 +89,10 @@ async def main():
             logger.bind(tag=TAG).error("mcp接入点不符合规范")
             config["mcp_endpoint"] = "你的接入点 websocket地址"
 
-    # 获取WebSocket配置，使用安全的默认值
-    websocket_port = 8000
-    server_config = config.get("server", {})
-    if isinstance(server_config, dict):
-        websocket_port = int(server_config.get("port", 8000))
-
     logger.bind(tag=TAG).info(
         "Websocket地址是\tws://{}:{}/xiaozhi/v1/",
         get_local_ip(),
-        websocket_port,
+        runtime_profile.websocket_port,
     )
 
     logger.bind(tag=TAG).info(

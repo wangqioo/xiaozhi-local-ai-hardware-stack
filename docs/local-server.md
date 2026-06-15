@@ -38,6 +38,14 @@ server/xiaozhi-esp32-server/data/.config.example.yaml
 
 服务器启动时，`main/xiaozhi-server/data` 会链接到 `../../data`，从而复用上游推荐的 `data/.config.yaml` 覆盖机制。
 
+推荐不要手写真实配置，而是维护根目录 `.local.env`，再运行：
+
+```bash
+tools/render_local_config.sh
+```
+
+这样服务器配置和刷机脚本会使用同一套 LAN IP、端口、设备 MAC 和 API key。
+
 ## Ports
 
 - `8001`: WebSocket 音频和控制通道。

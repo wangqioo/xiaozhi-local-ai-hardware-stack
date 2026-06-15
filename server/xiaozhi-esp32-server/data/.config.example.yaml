@@ -15,8 +15,8 @@ server:
 selected_module:
   VAD: SileroVAD
   ASR: FunASR
-  LLM: AliLLM
-  VLLM: QwenVLVLLM
+  LLM: ChatGLMLLM
+  VLLM: ChatGLMVLLM
   TTS: EdgeTTS
   Memory: nomem
   Intent: function_call
@@ -28,11 +28,18 @@ ASR:
     output_dir: tmp/
 
 LLM:
-  AliLLM:
+  ChatGLMLLM:
     type: openai
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    model_name: qwen-turbo
-    api_key: YOUR_DASHSCOPE_API_KEY
+    url: https://open.bigmodel.cn/api/paas/v4/
+    model_name: glm-4-flash
+    api_key: YOUR_GLM_API_KEY
+
+VLLM:
+  ChatGLMVLLM:
+    type: openai
+    url: https://open.bigmodel.cn/api/paas/v4/
+    model_name: glm-4v-flash
+    api_key: YOUR_GLM_API_KEY
 
 TTS:
   EdgeTTS:

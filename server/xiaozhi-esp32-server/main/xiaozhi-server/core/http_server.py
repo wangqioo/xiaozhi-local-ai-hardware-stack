@@ -4,17 +4,19 @@ from config.logger import setup_logging
 from core.api.ota_handler import OTAHandler
 from core.api.vision_handler import VisionHandler
 from core.api.device_admin import DeviceAdminHandler
+from core.device_admission import DeviceAdmission
 
 TAG = __name__
 
 
 class SimpleHttpServer:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, device_admission: DeviceAdmission = None):
         self.config = config
         self.logger = setup_logging()
-        self.ota_handler = OTAHandler(config)
+        self.device_admission = device_admission or DeviceAdmission(config)
+        self.ota_handler = OTAHandler(config, self.device_admission)
         self.vision_handler = VisionHandler(config)
-        self.device_admin = DeviceAdminHandler(config, self.ota_handler)
+        self.device_admin = DeviceAdminHandler(config, self.device_admission)
 
     def _get_websocket_url(self, local_ip: str, port: int) -> str:
         """获取websocket地址

@@ -9,7 +9,13 @@ import glob
 from typing import Dict, List, Tuple
 from aiohttp import web
 
-from core.auth import AuthManager
+from core.device_admission import DeviceAdmission
+from core.ota_contract import (
+    build_firmware_download_url,
+    choose_firmware_update,
+    parse_device_report,
+    resolve_websocket_url,
+)
 from core.utils.util import get_local_ip, get_vision_url
 from core.api.base_handler import BaseHandler
 
@@ -21,38 +27,10 @@ def _safe_basename(filename: str) -> str:
     return os.path.basename(filename)
 
 
-def _parse_version(ver: str) -> Tuple[int, ...]:
-    # conservative parser: split by non-digit, keep numeric parts
-    parts = re.findall(r"\d+", ver)
-    return tuple(int(p) for p in parts) if parts else (0,)
-
-
-def _is_higher_version(a: str, b: str) -> bool:
-    """Return True if version string a > b (semver-like numeric compare)."""
-    ta = _parse_version(a)
-    tb = _parse_version(b)
-    # compare tuple lexicographically, but allow different lengths
-    maxlen = max(len(ta), len(tb))
-    for i in range(maxlen):
-        ai = ta[i] if i < len(ta) else 0
-        bi = tb[i] if i < len(tb) else 0
-        if ai > bi:
-            return True
-        if ai < bi:
-            return False
-    return False
-
-
 class OTAHandler(BaseHandler):
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, device_admission: DeviceAdmission = None):
         super().__init__(config)
-        auth_config = config["server"].get("auth", {})
-        self.auth_enable = auth_config.get("enabled", False)
-        # 设备白名单
-        self.allowed_devices = set(auth_config.get("allowed_devices", []))
-        secret_key = config["server"]["auth_key"]
-        expire_seconds = auth_config.get("expire_seconds")
-        self.auth = AuthManager(secret_key=secret_key, expire_seconds=expire_seconds)
+        self.device_admission = device_admission or DeviceAdmission(config)
 
         # firmware storage
         self.bin_dir = os.path.join(os.getcwd(), "data", "bin")
@@ -61,47 +39,10 @@ class OTAHandler(BaseHandler):
             "updated_at": 0,
             "ttl": config.get("firmware_cache_ttl", 30),
             "files_by_model": {},
-            "files_by_model": {},
         }
-        # Temporary storage for activation codes: { "code": {"mac": "...", "expires": timestamp} }
-        self._activation_codes: Dict[str, Dict] = {}
-
-    def _generate_activation_code(self) -> str:
-        """Generate a random 6-digit code."""
-        import random
-        return "".join([str(random.randint(0, 9)) for _ in range(6)])
-
-    def _cleanup_expired_codes(self):
-        """Remove expired codes."""
-        now = time.time()
-        expired = [c for c, v in self._activation_codes.items() if v["expires"] < now]
-        for c in expired:
-            del self._activation_codes[c]
-
-    def _create_activation_request(self, mac_address: str) -> str:
-        """Create a new activation code for a MAC address."""
-        self._cleanup_expired_codes()
-        # Check if MAC already has a valid code? For simplicity, generate new one.
-        code = self._generate_activation_code()
-        # Ensure uniqueness
-        while code in self._activation_codes:
-            code = self._generate_activation_code()
-            
-        self._activation_codes[code] = {
-            "mac": mac_address,
-            "expires": time.time() + 300  # 5 minutes
-        }
-        self.logger.bind(tag=TAG).info(f"Generated activation code {code} for MAC {mac_address}")
-        return code
 
     def verify_activation_code(self, code: str) -> str:
-        """Verify code and return MAC if valid. Removes code after use."""
-        self._cleanup_expired_codes()
-        if code in self._activation_codes:
-            mac = self._activation_codes[code]["mac"]
-            del self._activation_codes[code]
-            return mac
-        return ""
+        return self.device_admission.verify_activation_code(code)
 
     def _refresh_bin_cache_if_needed(self):
         now = int(time.time())
@@ -128,10 +69,6 @@ class OTAHandler(BaseHandler):
                 model = m.group(1)
                 version = m.group(2)
                 files_by_model.setdefault(model, []).append((version, fname))
-
-            # sort versions for each model descending
-            for model, items in files_by_model.items():
-                items.sort(key=lambda it: _parse_version(it[0]), reverse=True)
 
             self._bin_cache["files_by_model"] = files_by_model
             self._bin_cache["updated_at"] = now
@@ -174,11 +111,7 @@ class OTAHandler(BaseHandler):
         """
         server_config = self.config["server"]
         websocket_config = server_config.get("websocket", "")
-
-        if "你的" not in websocket_config:
-            return websocket_config
-        else:
-            return f"ws://{local_ip}:{port}/xiaozhi/v1/"
+        return resolve_websocket_url(websocket_config, local_ip, port)
 
     async def handle_post(self, request):
         """处理 OTA POST 请求
@@ -195,70 +128,24 @@ class OTAHandler(BaseHandler):
             self.logger.bind(tag=TAG).debug(f"OTA请求头: {request.headers}")
             self.logger.bind(tag=TAG).debug(f"OTA请求数据: {data}")
 
-            device_id = request.headers.get("device-id", "")
-            if device_id:
-                self.logger.bind(tag=TAG).info(f"OTA请求设备ID: {device_id}")
-            else:
-                raise Exception("OTA请求设备ID为空")
-
-            client_id = request.headers.get("client-id", "")
-            if client_id:
-                self.logger.bind(tag=TAG).info(f"OTA请求ClientID: {client_id}")
-            else:
-                raise Exception("OTA请求ClientID为空")
-
             data_json = {}
             try:
                 data_json = json.loads(data) if data else {}
             except Exception:
                 data_json = {}
 
+            device_report = parse_device_report(dict(request.headers), data_json)
+            device_id = device_report.device_id
+            client_id = device_report.client_id
+            device_model = device_report.model
+            device_version = device_report.version
+            self.logger.bind(tag=TAG).info(f"OTA请求设备ID: {device_id}")
+            self.logger.bind(tag=TAG).info(f"OTA请求ClientID: {client_id}")
+
             server_config = self.config["server"]
-            # Distinguish ports:
-            # - websocket_port is used to construct websocket URL (server["port"])
-            # - http_port is used to construct OTA download URLs (server["http_port"])
+            # websocket_port is used to construct websocket URL (server["port"])
             websocket_port = int(server_config.get("port", 8000))
-            http_port = int(server_config.get("http_port", 8003))
             local_ip = get_local_ip()
-
-            # Determine device model (prefer headers)
-            device_model = ""
-            # header candidates
-            for h in ("device-model", "device_model", "model"):
-                if h in request.headers:
-                    device_model = request.headers.get(h, "").strip()
-                    break
-            # body fallback
-            if not device_model:
-                try:
-                    if "board" in data_json and isinstance(data_json["board"], dict):
-                        device_model = data_json["board"].get("type", "")
-                    elif "model" in data_json:
-                        device_model = data_json.get("model", "")
-                except Exception:
-                    device_model = ""
-            if not device_model:
-                device_model = "default"
-
-            # Determine device current version (prefer headers)
-            device_version = ""
-            for h in (
-                "device-version",
-                "device_version",
-                "firmware-version",
-                "app-version",
-                "application-version",
-            ):
-                if h in request.headers:
-                    device_version = request.headers.get(h, "").strip()
-                    break
-            if not device_version:
-                try:
-                    device_version = data_json.get("application", {}).get("version", "")
-                except Exception:
-                    device_version = ""
-            if not device_version:
-                device_version = "0.0.0"
 
             return_json = {
                 "server_time": {
@@ -320,32 +207,20 @@ class OTAHandler(BaseHandler):
                 self.logger.bind(tag=TAG).info(f"为设备 {device_id} 下发MQTT网关配置")
 
             else:  # 未配置 mqtt_gateway，下发 WebSocket
-                # 如果开启了认证，则进行认证校验
-                token = ""
-                if self.auth_enable:
-                    if self.allowed_devices:
-                        if device_id not in self.allowed_devices:
-                            # DEVICE NOT ALLOWED -> GENERATE CODE
-                            # token = self.auth.generate_token(client_id, device_id)
-                            activation_code = self._create_activation_request(device_id)
-                            return_json["activation"] = {
-                                "code": activation_code,
-                                "message": "Please enter code at http://" + request.host + "/xiaozhi/admin",
-                                "timeout_ms": 300000 
-                            }
-                            # Send empty token to prevent connection attempt
-                            token = ""
-                            self.logger.bind(tag=TAG).info(f"Device {device_id} not allowed. Generated Code: {activation_code}")
-                            
-                        else:
-                             # DEVICE ALLOWED -> GENERATE TOKEN
-                             token = self.auth.generate_token(client_id, device_id)
-                    else:
-                        token = self.auth.generate_token(client_id, device_id)
+                provision = self.device_admission.provision_websocket(
+                    device_id=device_id,
+                    client_id=client_id,
+                    activation_host=request.host,
+                )
+                if provision.activation:
+                    return_json["activation"] = provision.activation
+                    self.logger.bind(tag=TAG).info(
+                        f"Device {device_id} not allowed. Generated Code: {provision.activation.get('code', '')}"
+                    )
                 # NOTE: use websocket_port here
                 return_json["websocket"] = {
                     "url": self._get_websocket_url(local_ip, websocket_port),
-                    "token": token,
+                    "token": provision.token,
                 }
                 self.logger.bind(tag=TAG).info(
                     f"未配置MQTT网关，为设备 {device_id} 下发WebSocket配置"
@@ -361,23 +236,13 @@ class OTAHandler(BaseHandler):
                     f"查找型号 {device_model} 的固件，找到 {len(candidates)} 个候选"
                 )
 
-                chosen_url = ""
-                chosen_version = device_version
+                update = choose_firmware_update(device_version, candidates)
 
-                # candidates are sorted descending by version
-                for ver, fname in candidates:
-                    if _is_higher_version(ver, device_version):
-                        # build download url (only allow download via our download endpoint)
-                        chosen_version = ver
-                        # Use get_vision_url to get the base URL and replace the path
-                        vision_url = get_vision_url(self.config)
-                        # Replace the path from "/mcp/vision/explain" to "/xiaozhi/ota/download/{fname}"
-                        chosen_url = vision_url.replace(
-                            "/mcp/vision/explain", f"/xiaozhi/ota/download/{fname}"
-                        )
-                        break
-
-                if chosen_url:
+                if update:
+                    chosen_version, filename = update
+                    chosen_url = build_firmware_download_url(
+                        get_vision_url(self.config), filename
+                    )
                     return_json["firmware"]["version"] = chosen_version
                     return_json["firmware"]["url"] = chosen_url
                     self.logger.bind(tag=TAG).info(

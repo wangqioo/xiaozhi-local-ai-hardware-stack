@@ -1,4 +1,5 @@
 .DS_Store
+.local.env
 
 # Firmware local build output and downloaded ESP-IDF components.
 firmware/xiaozhi-esp32/build*/

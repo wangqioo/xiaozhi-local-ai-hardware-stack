@@ -34,9 +34,12 @@ server/xiaozhi-esp32-server/main/manager-mobile   # 移动端管理台源码
 
 ```bash
 cd /Users/wq/xiaozhi-local-ai-hardware-stack
-cp server/xiaozhi-esp32-server/data/.config.example.yaml server/xiaozhi-esp32-server/data/.config.yaml
+# Copy the real Zhipu BigModel API key in your browser first.
+export GLM_API_KEY="$(pbpaste)"
+tools/prepare_local_runtime.sh
 tools/download_sensevoice_model.sh
 tools/setup_server_env.sh
+tools/doctor.sh
 tools/run_server.sh
 ```
 
@@ -57,3 +60,11 @@ tools/monitor_szpi_s3.sh /dev/cu.usbmodem112301
 - 服务器运行在 Mac，本地 WebSocket 端口 `8001`，HTTP OTA 端口 `8003`。
 - 固件刷入 SZPI-S3 后，通过 OTA 获取 `ws://<Mac LAN IP>:8001/xiaozhi/v1/`。
 - 设备唤醒词 `你好小智` 可以连接本地服务器，并完成 ASR -> LLM -> TTS -> 播放闭环。
+
+## Development Checks
+
+```bash
+tools/verify.sh
+```
+
+`verify.sh` 运行本仓库的轻量测试、shell 语法检查、关键 Python 入口编译检查和敏感文件跟踪检查。它不会联网、启动服务或刷固件。

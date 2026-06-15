@@ -2,12 +2,12 @@ import json
 import os
 from aiohttp import web
 from core.api.base_handler import BaseHandler
-from core.api.ota_handler import OTAHandler
+from core.device_admission import DeviceAdmission
 
 class DeviceAdminHandler(BaseHandler):
-    def __init__(self, config: dict, ota_handler: OTAHandler):
+    def __init__(self, config: dict, device_admission: DeviceAdmission):
         super().__init__(config)
-        self.ota_handler = ota_handler
+        self.device_admission = device_admission
         self.config_path = os.path.join(os.getcwd(), "config.yaml") # Assuming default config path
 
     async def handle_get(self, request):
@@ -83,8 +83,8 @@ class DeviceAdminHandler(BaseHandler):
             if not code:
                  return web.json_response({"success": False, "message": "Code is required"})
 
-            # 1. Verify Code with OTA Handler
-            mac = self.ota_handler.verify_activation_code(code)
+            # 1. Verify Code with DeviceAdmission
+            mac = self.device_admission.verify_activation_code(code)
             if not mac:
                 return web.json_response({"success": False, "message": "Invalid or Expired Code"})
 
@@ -105,9 +105,7 @@ class DeviceAdminHandler(BaseHandler):
         allowed.add(mac)
         auth_config["allowed_devices"] = list(allowed)
         self.config["server"]["auth"] = auth_config
-        
-        # Also update OTA Handler's reference
-        self.ota_handler.allowed_devices.add(mac)
+        self.device_admission.allow_device(mac)
 
         # 2. Persist to File (Permanent Effect)
         # Note: In a real production app, use a DB. Here we edit yaml directly for simplicity.

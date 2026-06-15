@@ -13,7 +13,7 @@
 
 ## API Keys
 
-API key 只放在服务器端 `data/.config.yaml`。设备固件只知道 OTA 地址和 WebSocket 地址，不应该持有云服务密钥。
+API key 只放在本机 `.local.env` 和服务器端 `data/.config.yaml`，二者都被 Git 忽略。设备固件只知道 OTA 地址和 WebSocket 地址，不应该持有云服务密钥。
 
 ## Device Auth
 
@@ -34,6 +34,7 @@ server:
 推送前运行：
 
 ```bash
+tools/verify.sh
 find . -name model.pt -o -name .config.yaml -o -name .env -o -name node_modules
 rg -n "sk-[A-Za-z0-9]|access_token: \"[A-Za-z0-9_\\-]{10,}|api_key: \"sk-|secret_key: \"[A-Za-z0-9]" .
 ```
